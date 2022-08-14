@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 import time
 import requests
 from telegram import Bot
@@ -9,11 +10,6 @@ from exceptions import SendMessageError, EndpointError
 
 
 load_dotenv()
-
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    filename='homework.log',
-    level=logging.INFO)
 
 
 PRACTICUM_TOKEN = os.getenv('PRACTICUM_TOKEN')
@@ -25,7 +21,7 @@ ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
 HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
 
 
-HOMEWORK_STATUSES = {
+HOMEWORK_VERDICTS = {
     'approved': 'Работа проверена: ревьюеру всё понравилось. Ура!',
     'reviewing': 'Работа взята на проверку ревьюером.',
     'rejected': 'Работа проверена: у ревьюера есть замечания.'
@@ -39,6 +35,7 @@ def send_message(bot, message):
         logging.info(f'Сообщение: {message} - успешно отправлено')
     except SendMessageError as error:
         logging.error(f'сбой при отправке сообщения в Telegram: {error}.')
+        raise SendMessageError from error
     return message
 
 
@@ -83,10 +80,10 @@ def parse_status(homework):
     """Извлекает из информации о конкретной домашней работе ее статус."""
     homework_status = homework.get('status')
     homework_name = homework.get('homework_name')
-    if homework_status in HOMEWORK_STATUSES:
-        verdict = HOMEWORK_STATUSES.get(homework_status)
+    if homework_status in HOMEWORK_VERDICTS:
+        verdict = HOMEWORK_VERDICTS.get(homework_status)
         return f'Изменился статус проверки работы "{homework_name}". {verdict}'
-    elif homework_status not in HOMEWORK_STATUSES:
+    elif homework_status not in HOMEWORK_VERDICTS:
         verdict = 'Твоя работа еще не проверена :('
         logging.debug(f'отсутствие в ответе новых статусов: {verdict}')
         raise KeyError(verdict)
@@ -105,19 +102,31 @@ def check_tokens():
 
 def main():
     """Основная логика работы бота."""
+    logging.basicConfig(
+        format='%(asctime)s - '
+               '%(levelname)s - '
+               '%(message)s - '
+               '%(name)s - '
+               '%(funcName)s - '
+               '%(lineno)s',
+        filename='homework.log',
+        level=logging.INFO)
     bot = Bot(token=TELEGRAM_TOKEN)
     current_timestamp = 0
     api_answer = get_api_answer(current_timestamp)
     response = check_response(response=api_answer)
     status = parse_status(homework=response[0])
-    while check_tokens():
-        try:
-            send_message(bot, message=status)
-            time.sleep(RETRY_TIME)
-        except Exception as error:
-            error_message = f'Сбой в работе программы: {error}'
-            send_message(bot, message=error_message)
-            time.sleep(RETRY_TIME)
+    while True:
+        if check_tokens():
+            try:
+                send_message(bot, message=status)
+                time.sleep(RETRY_TIME)
+            except Exception as error:
+                error_message = f'Сбой в работе программы: {error}'
+                send_message(bot, message=error_message)
+                time.sleep(RETRY_TIME)
+        else:
+            sys.exit
 
 
 if __name__ == '__main__':
